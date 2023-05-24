@@ -76,12 +76,12 @@ func notify(result Result) error {
 
 	payload, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("Error creating message to send to Slack: %s", err)
+		return fmt.Errorf("error creating message to send to Slack: %s", err)
 	}
 
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(payload))
 	if err != nil {
-		return fmt.Errorf("Error sending Slack Message: %s", err)
+		return fmt.Errorf("error sending Slack Message: %s", err)
 	}
 	defer resp.Body.Close()
 	return nil
@@ -99,7 +99,7 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("Failed to create AWS session: %s", err)
+		return fmt.Errorf("failed to create AWS session: %s", err)
 	}
 
 	// Create DynamoDB client
@@ -111,12 +111,12 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 	response, err := http.Get(url)
 
 	if err != nil {
-		return fmt.Errorf("Failed to get SerpAPI response: %s", err)
+		return fmt.Errorf("failed to get SerpAPI response: %s", err)
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return fmt.Errorf("Failed to read response from SerpAPI: %s", err)
+		return fmt.Errorf("failed to read response from SerpAPI: %s", err)
 	}
 
 	var responseObject Response
@@ -137,7 +137,7 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("Failed to put the result in the DB: %s", err)
+			return fmt.Errorf("failed to put the result in the DB: %s", err)
 		}
 
 		if response.Item == nil || len(response.Item) == 0 {
@@ -172,12 +172,12 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 				},
 			})
 			if err != nil {
-				return fmt.Errorf("Failed to put the result in the DB: %s", err)
+				return fmt.Errorf("failed to put the result in the DB: %s", err)
 			}
 			//Send the new result as an alert
 			err = notify(result)
 			if err != nil {
-				return fmt.Errorf("Failed to send Slack notification: %s", err)
+				return fmt.Errorf("failed to send Slack notification: %s", err)
 			}
 		}
 	}

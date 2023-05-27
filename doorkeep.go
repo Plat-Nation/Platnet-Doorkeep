@@ -8,29 +8,33 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strconv"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/guregu/dynamo"
 )
 
 type Response struct {
-	Results []Result `json:"organic_results"`
+	Results []Result `json:"items"`
 }
 
 type Result struct {
-	Position          int    `json:"position"`
-	Title             string `json:"title"`
-	Link              string `json:"link"`
-	DisplayedLink     string `json:"displayed_link"`
-	Snippet           string `json:"snippet"`
-	SnippetHighlights string `json:"snippet_highlighted_words"`
-	CachedLink        string `json:"cached_page_link"`
-	Source            string `json:"source"`
+	Title         string `json:"title"`
+	Link          string `json:"link"`
+	DisplayedLink string `json:"displayLink"`
+	Snippet       string `json:"snippet"`
+	CacheId       string `json:"cacheId"`
+}
+
+type Item struct {
+	Title         string `dynamo:"title"`
+	Link          string `dynamo:"link"`
+	DisplayedLink string `dynamo:"displayLink"`
+	Snippet       string `dynamo:"snippet"`
+	CacheId       string `dynamo:"cacheId"`
 }
 
 type Message struct {
@@ -87,8 +91,16 @@ func notify(result Result) error {
 	return nil
 }
 
-func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
+func getQueries() []string {
+	queries := []string{
+		"site%3Astackoverflow.com+OR+site%3Astackexchange.com+floqast+OR+liljwty",
+		"%22liljwty%22",
+		"%22x-liljwty-gate%22",
+	}
+	return queries
+}
 
+func parseResult(responseObject Response) error {
 	// Initialize a session that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials
 	// and region from the shared configuration file ~/.aws/config.
@@ -102,75 +114,24 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 		return fmt.Errorf("failed to create AWS session: %s", err)
 	}
 
-	// Create DynamoDB client
-	svc := dynamodb.New(sess)
-
-	key := os.Getenv("SERP")
-	query := "site%3Astackoverflow.com+OR+site%3Astackexchange.com+floqast+OR+liljwty&google_domain"
-	url := "https://serpapi.com/search.json?engine=google&q=" + query + "=google.com&gl=us&hl=en&api_key=" + key
-	response, err := http.Get(url)
-
-	if err != nil {
-		return fmt.Errorf("failed to get SerpAPI response: %s", err)
-	}
-
-	responseData, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response from SerpAPI: %s", err)
-	}
-
-	var responseObject Response
-	json.Unmarshal(responseData, &responseObject)
+	db := dynamo.New(sess)
+	table := db.Table("doorkeep-dev")
 
 	for i := 0; i < len(responseObject.Results); i++ {
 		result := responseObject.Results[i]
 		//Try to get each result from the db
-		response, err := svc.GetItemWithContext(ctx, &dynamodb.GetItemInput{
-			TableName: aws.String("doorkeep"),
-			Key: map[string]*dynamodb.AttributeValue{
-				"position": {
-					S: aws.String(strconv.Itoa(result.Position)),
-				},
-				"title": {
-					S: aws.String(result.Title),
-				},
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to put the result in the DB: %s", err)
-		}
-
-		if response.Item == nil || len(response.Item) == 0 {
+		var response Item
+		err := table.Get("title", result.Title).One(&response)
+		if err == dynamo.ErrNotFound {
 			//Put the Result in the db if it isn't found
-			_, err := svc.PutItemWithContext(ctx, &dynamodb.PutItemInput{
-				TableName: aws.String("doorkeep"),
-				Item: map[string]*dynamodb.AttributeValue{
-					"position": {
-						S: aws.String(strconv.Itoa(result.Position)),
-					},
-					"title": {
-						S: aws.String(result.Title),
-					},
-					"link": {
-						S: aws.String(result.Link),
-					},
-					"displayedLink": {
-						S: aws.String(result.DisplayedLink),
-					},
-					"snippet": {
-						S: aws.String(result.Snippet),
-					},
-					"snippetHighlights": {
-						S: aws.String(result.SnippetHighlights),
-					},
-					"cachedLink": {
-						S: aws.String(result.CachedLink),
-					},
-					"source": {
-						S: aws.String(result.Source),
-					},
-				},
-			})
+			item := Item{
+				Title:         result.Title,
+				Link:          result.Link,
+				DisplayedLink: result.DisplayedLink,
+				Snippet:       result.Snippet,
+				CacheId:       result.CacheId,
+			}
+			err := table.Put(item).Run()
 			if err != nil {
 				return fmt.Errorf("failed to put the result in the DB: %s", err)
 			}
@@ -179,7 +140,34 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 			if err != nil {
 				return fmt.Errorf("failed to send Slack notification: %s", err)
 			}
+		} else if err != nil {
+			return fmt.Errorf("failed to get the result from the DB: %s", err)
 		}
+	}
+	return nil
+}
+
+func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
+	key := os.Getenv("SERP")
+	searchEngineId := os.Getenv("SEID")
+	queries := getQueries()
+	for index := range queries {
+		url := "https://www.googleapis.com/customsearch/v1?key=" + key + "&cx=" + searchEngineId + "&q=" + queries[index]
+		response, err := http.Get(url)
+
+		if err != nil {
+			return fmt.Errorf("failed to get SerpAPI response: %s", err)
+		}
+
+		responseData, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response from SerpAPI: %s", err)
+		}
+
+		var responseObject Response
+		json.Unmarshal(responseData, &responseObject)
+
+		parseResult(responseObject)
 	}
 	return nil
 }

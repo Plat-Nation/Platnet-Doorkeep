@@ -120,7 +120,7 @@ func parseResult(responseObject Response) error {
 	}
 
 	db := dynamo.New(sess)
-	table := db.Table("doorkeep-dev")
+	table := db.Table("doorkeep")
 
 	for i := 0; i < len(responseObject.Results); i++ {
 		result := responseObject.Results[i]

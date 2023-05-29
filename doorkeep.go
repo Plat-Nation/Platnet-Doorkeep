@@ -29,6 +29,11 @@ type Result struct {
 	CacheId       string `json:"cacheId"`
 }
 
+type Query struct {
+	Title string `dynamo:"title"`
+	Link  string `dynamo:"link"`
+}
+
 type Item struct {
 	Title         string `dynamo:"title"`
 	Link          string `dynamo:"link"`
@@ -120,8 +125,8 @@ func parseResult(responseObject Response) error {
 	for i := 0; i < len(responseObject.Results); i++ {
 		result := responseObject.Results[i]
 		//Try to get each result from the db
-		var response Item
-		err := table.Get("title", result.Title).One(&response)
+		var response Query
+		err := table.Get("title", result.Title).Range("link", dynamo.Equal, result.Link).One(&response)
 		if err == dynamo.ErrNotFound {
 			//Put the Result in the db if it isn't found
 			item := Item{

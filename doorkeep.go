@@ -26,7 +26,6 @@ type Result struct {
 	Link          string `json:"link"`
 	DisplayedLink string `json:"displayLink"`
 	Snippet       string `json:"snippet"`
-	CacheId       string `json:"cacheId"`
 }
 
 type Query struct {
@@ -39,7 +38,6 @@ type Item struct {
 	Link          string `dynamo:"link"`
 	DisplayedLink string `dynamo:"displayLink"`
 	Snippet       string `dynamo:"snippet"`
-	CacheId       string `dynamo:"cacheId"`
 }
 
 type Message struct {
@@ -134,7 +132,6 @@ func parseResult(responseObject Response) error {
 				Link:          result.Link,
 				DisplayedLink: result.DisplayedLink,
 				Snippet:       result.Snippet,
-				CacheId:       result.CacheId,
 			}
 			err := table.Put(item).Run()
 			if err != nil {
@@ -161,12 +158,12 @@ func handleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 		response, err := http.Get(url)
 
 		if err != nil {
-			return fmt.Errorf("failed to get SerpAPI response: %s", err)
+			return fmt.Errorf("failed to get Search API response: %s", err)
 		}
 
 		responseData, err := ioutil.ReadAll(response.Body)
 		if err != nil {
-			return fmt.Errorf("failed to read response from SerpAPI: %s", err)
+			return fmt.Errorf("failed to read response from Search API: %s", err)
 		}
 
 		var responseObject Response
